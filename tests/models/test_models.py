@@ -814,6 +814,82 @@ def test_force2d():
     assert_elements_are_identical(multipolygons_3d, expected_multipolygons_2d)
 
 
+@pytest.mark.parametrize("with_z", [False, True])
+def test_force2d_polygon_holes(with_z):
+    exterior = [(0, 0), (10, 0), (10, 10), (0, 10)]
+    hole_coords = [
+        [(1, 1), (3, 1), (3, 3), (1, 3)],
+        [(5, 5), (8, 5), (8, 8), (5, 8)],
+    ]
+
+    def add_z(coords: list[tuple[int, int]]) -> list[tuple[int, int, int]]:
+        return [(x, y, 2) for x, y in coords]
+
+    expected = Polygon(exterior, holes=hole_coords)
+    polygon = Polygon(add_z(exterior), holes=[add_z(hole) for hole in hole_coords]) if with_z else expected
+    gdf = GeoDataFrame({"value": [7]}, geometry=[polygon], crs="EPSG:4326", index=[11])
+    gdf.attrs["metadata"] = "kept"
+
+    force_2d(gdf)
+
+    result = gdf.geometry.iloc[0]
+    assert not result.has_z
+    assert result.equals(expected)
+    assert len(result.interiors) == 2
+    assert result.area == expected.area
+    assert gdf.crs == "EPSG:4326"
+    assert list(gdf.index) == [11]
+    assert gdf["value"].tolist() == [7]
+    assert gdf.attrs == {"metadata": "kept"}
+
+
+@pytest.mark.parametrize("with_z", [False, True])
+def test_force2d_multipolygon_holes(with_z):
+    polygon_coords = [
+        (
+            [(0, 0), (10, 0), (10, 10), (0, 10)],
+            [[(1, 1), (3, 1), (3, 3), (1, 3)]],
+        ),
+        (
+            [(20, 20), (30, 20), (30, 30), (20, 30)],
+            [[(22, 22), (24, 22), (24, 24), (22, 24)]],
+        ),
+    ]
+
+    def make_polygon(exterior: list[tuple[int, int]], holes: list[list[tuple[int, int]]], include_z: bool) -> Polygon:
+        if include_z:
+            return Polygon(
+                [(x, y, 3) for x, y in exterior],
+                [[(x, y, 3) for x, y in hole] for hole in holes],
+            )
+        return Polygon(exterior, holes=holes)
+
+    expected_polygons = [make_polygon(*coords, include_z=False) for coords in polygon_coords]
+    expected = MultiPolygon(expected_polygons)
+    geometry = MultiPolygon([make_polygon(*coords, include_z=with_z) for coords in polygon_coords])
+    second_geometry = make_polygon(*polygon_coords[1], include_z=not with_z)
+
+    gdf = GeoDataFrame(
+        {"value": [7, 8], "custom_shape": [geometry, second_geometry]},
+        geometry="custom_shape",
+        crs="EPSG:4326",
+        index=[11, 22],
+    )
+    gdf.attrs["metadata"] = "kept"
+
+    force_2d(gdf)
+
+    result = gdf.geometry.iloc[0]
+    assert not result.has_z
+    assert result.equals(expected)
+    assert [len(polygon.interiors) for polygon in result.geoms] == [1, 1]
+    assert result.area == expected.area
+    assert not gdf.geometry.iloc[1].has_z
+    assert gdf.geometry.name == "custom_shape"
+    assert gdf["value"].tolist() == [7, 8]
+    assert gdf.attrs == {"metadata": "kept"}
+
+
 def test_points_model_preserves_column_order():
     # the extra columns used to be added iterating over a set, so their order in the parsed element depended on
     # PYTHONHASHSEED. Renaming the coordinate columns changes the set of column names, which used to bypass the

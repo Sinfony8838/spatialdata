@@ -339,9 +339,20 @@ def force_2d(gdf: GeoDataFrame) -> None:
             if isinstance(shape, Point):
                 new_shape = Point(shape.x, shape.y)
             elif isinstance(shape, Polygon):
-                new_shape = Polygon(np.array(shape.exterior.coords.xy).T)
+                new_shape = Polygon(
+                    np.array(shape.exterior.coords.xy).T,
+                    [np.array(interior.coords.xy).T for interior in shape.interiors],
+                )
             elif isinstance(shape, MultiPolygon):
-                new_shape = MultiPolygon([Polygon(np.array(p.exterior.coords.xy).T) for p in shape.geoms])
+                new_shape = MultiPolygon(
+                    [
+                        Polygon(
+                            np.array(p.exterior.coords.xy).T,
+                            [np.array(interior.coords.xy).T for interior in p.interiors],
+                        )
+                        for p in shape.geoms
+                    ]
+                )
             else:
                 raise ValueError(f"Unsupported geometry type: {type(shape)}")
             new_shapes.append(new_shape)
